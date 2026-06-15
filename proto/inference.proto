@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package inference;
+
+service InferenceGateway {
+  rpc Submit(InferenceRequest) returns (stream TokenEvent);
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+}
+
+enum TokenEventType {
+  TOKEN_EVENT_TYPE_UNSPECIFIED = 0;
+  TOKEN_EVENT_TYPE_STARTED = 1;
+  TOKEN_EVENT_TYPE_TOKEN = 2;
+  TOKEN_EVENT_TYPE_COMPLETED = 3;
+  TOKEN_EVENT_TYPE_FAILED = 4;
+  TOKEN_EVENT_TYPE_CANCELLED = 5;
+}
+
+enum RequestStatus {
+  REQUEST_STATUS_UNSPECIFIED = 0;
+  REQUEST_STATUS_QUEUED = 1;
+  REQUEST_STATUS_RUNNING = 2;
+  REQUEST_STATUS_COMPLETED = 3;
+  REQUEST_STATUS_FAILED = 4;
+  REQUEST_STATUS_CANCELLED = 5;
+}
+
+message SamplingOptions {
+  float temperature = 1;
+  float top_p = 2;
+  uint32 top_k = 3;
+  uint64 seed = 4;
+}
+
+message StreamOptions {
+  bool include_probabilities = 1;
+  bool replay_from_beginning = 2;
+}
+
+message InferenceRequest {
+  string request_id = 1;
+  string prompt = 2;
+  uint32 max_tokens = 3;
+  SamplingOptions sampling = 4;
+  uint64 deadline_ms = 5;
+  StreamOptions stream_options = 6;
+}
+
+message TokenEvent {
+  string request_id = 1;
+  uint32 sequence_number = 2;
+  string token = 3;
+  float probability = 4;
+  TokenEventType event_type = 5;
+  string worker_id = 6;
+  string error_message = 7;
+  uint64 timestamp_ms = 8;
+}
+
+message CancelRequest {
+  string request_id = 1;
+  string reason = 2;
+}
+
+message CancelResponse {
+  string request_id = 1;
+  bool accepted = 2;
+  string message = 3;
+}
+
+message StatusRequest {
+  string request_id = 1;
+}
+
+message StatusResponse {
+  string request_id = 1;
+  RequestStatus status = 2;
+  uint32 emitted_tokens = 3;
+  string worker_id = 4;
+  string error_message = 5;
+  uint64 created_at_ms = 6;
+  uint64 updated_at_ms = 7;
+}

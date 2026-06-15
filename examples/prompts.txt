@@ -1,0 +1,3 @@
+Explain why Kafka is useful for distributed inference.
+Write a haiku about Rust services and Python workers.
+Summarize the tradeoff between durable token logs and direct gRPC callbacks.

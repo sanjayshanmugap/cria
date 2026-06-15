@@ -1,0 +1,18 @@
+[project]
+name = "distributed-llm-worker"
+version = "0.1.0"
+description = "Python Kafka inference worker for the distributed LLM inference engine"
+requires-python = ">=3.10"
+dependencies = [
+  "confluent-kafka>=2.3",
+  "grpcio>=1.60",
+  "grpcio-tools>=1.60",
+  "protobuf>=4.25",
+  "prometheus-client>=0.20",
+  "torch>=2.1",
+  "transformers>=4.40",
+  "accelerate>=0.28",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.5"]

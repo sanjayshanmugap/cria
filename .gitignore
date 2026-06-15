@@ -1,0 +1,7 @@
+/target
+**/__pycache__/
+*.pyc
+workers/python/inference_pb2.py
+workers/python/inference_pb2_grpc.py
+.env
+.DS_Store
