@@ -13,6 +13,10 @@ jobs:
         working-directory: control-plane
     steps:
       - uses: actions/checkout@v4
+      - name: Install librdkafka build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libssl-dev libcurl4-openssl-dev libsasl2-dev zlib1g-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
