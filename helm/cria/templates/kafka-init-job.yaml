@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-topic-init
+  namespace: {{ include "cria.namespace" . }}
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-topic-init
+          image: {{ .Values.kafka.image }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              for topic in {{ include "cria.topics" . }}; do
+                kafka-topics.sh --bootstrap-server kafka:9092 \
+                  --create --if-not-exists \
+                  --topic "${topic}" \
+                  --partitions "{{ .Values.kafka.topicPartitions }}" \
+                  --replication-factor "{{ .Values.kafka.topicReplicationFactor }}"
+              done

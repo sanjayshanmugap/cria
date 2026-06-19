@@ -32,6 +32,7 @@ class SamplingOptions:
 @dataclass(frozen=True)
 class InferenceJob:
     request_id: str
+    model_id: str
     prompt: str
     max_tokens: int
     sampling: SamplingOptions
@@ -41,6 +42,7 @@ class InferenceJob:
     def from_payload(cls, payload: dict[str, Any], defaults: SamplingOptions) -> InferenceJob:
         return cls(
             request_id=str(payload["request_id"]),
+            model_id=str(payload.get("model_id") or "mock"),
             prompt=str(payload["prompt"]),
             max_tokens=int(payload.get("max_tokens") or 128),
             sampling=SamplingOptions.from_payload(payload, defaults),

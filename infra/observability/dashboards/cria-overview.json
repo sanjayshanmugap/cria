@@ -1,0 +1,48 @@
+{
+  "title": "Cria Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Accepted Requests",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "inference_requests_total" }]
+    },
+    {
+      "type": "stat",
+      "title": "Completed Requests",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "inference_completed_requests_total" }]
+    },
+    {
+      "type": "stat",
+      "title": "Active Streams",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "inference_active_streams" }]
+    },
+    {
+      "type": "stat",
+      "title": "Worker Active Jobs",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "worker_active_jobs" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokens Per Second",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [{ "expr": "rate(worker_tokens_total[1m])" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request Outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "rate(inference_completed_requests_total[1m])", "legendFormat": "completed" },
+        { "expr": "rate(inference_failed_requests_total[1m])", "legendFormat": "failed" },
+        { "expr": "rate(inference_cancelled_requests_total[1m])", "legendFormat": "cancelled" }
+      ]
+    }
+  ]
+}

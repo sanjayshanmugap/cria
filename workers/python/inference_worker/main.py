@@ -43,9 +43,11 @@ def main() -> int:
     )
 
     logger.info(
-        "worker started worker_id=%s backend=%s metrics_port=%s",
+        "worker started worker_id=%s model_id=%s backend=%s request_topic=%s metrics_port=%s",
         config.worker_id,
+        config.model_id,
         config.backend,
+        config.request_topic,
         config.metrics_port,
     )
     try:

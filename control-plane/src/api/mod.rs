@@ -3,7 +3,7 @@ use crate::{
     kafka::{CancellationEvent, InferenceJob, KafkaProducer, SamplingJobOptions, StreamJobOptions},
     pb::{
         inference_gateway_server::InferenceGateway, CancelRequest, CancelResponse,
-        InferenceRequest, RequestStatus, StatusRequest, StatusResponse, TokenEvent,
+        InferenceRequest, RequestStatus, StatusRequest, StatusResponse, TokenEvent, TokenEventType,
     },
     state::{RequestRecord, RequestState},
     streaming::StreamRegistry,
@@ -74,6 +74,24 @@ impl InferenceGateway for GatewayService {
         } else {
             request.request_id.trim().to_string()
         };
+        let replay_from_beginning = request
+            .stream_options
+            .as_ref()
+            .is_some_and(|options| options.replay_from_beginning);
+        if replay_from_beginning {
+            return self.replay_cached_events(request_id).await;
+        }
+        let model_id = if request.model_id.trim().is_empty() {
+            self.config.default_model_id.clone()
+        } else {
+            request.model_id.trim().to_string()
+        };
+        if self.config.request_topic_for_model(&model_id).is_none() {
+            return Err(Status::invalid_argument(format!(
+                "unknown model_id {model_id}; available models: {}",
+                self.config.model_ids().join(", ")
+            )));
+        }
 
         let record = RequestRecord::queued(request_id.clone());
         self.state.insert(record);
@@ -88,6 +106,7 @@ impl InferenceGateway for GatewayService {
 
         let job = InferenceJob {
             request_id: request_id.clone(),
+            model_id: model_id.clone(),
             prompt,
             max_tokens,
             sampling: request.sampling.map(SamplingJobOptions::from),
@@ -114,7 +133,7 @@ impl InferenceGateway for GatewayService {
         self.metrics
             .enqueue_latency_seconds
             .observe(started_at.elapsed().as_secs_f64());
-        info!(request_id = %request_id, max_tokens, "enqueued inference request");
+        info!(request_id = %request_id, model_id = %model_id, max_tokens, "enqueued inference request");
 
         Ok(Response::new(
             Box::pin(ReceiverStream::new(receiver)) as Self::SubmitStream
@@ -176,6 +195,49 @@ impl InferenceGateway for GatewayService {
     }
 }
 
+impl GatewayService {
+    async fn replay_cached_events(
+        &self,
+        request_id: String,
+    ) -> Result<Response<<Self as InferenceGateway>::SubmitStream>, Status> {
+        if request_id.trim().is_empty() {
+            return Err(Status::invalid_argument(
+                "request_id is required when replay_from_beginning is true",
+            ));
+        }
+        if self.state.get(&request_id).is_none() {
+            return Err(Status::not_found("request not found"));
+        }
+
+        let receiver = self
+            .streams
+            .register(request_id.clone())
+            .map_err(|_| Status::already_exists("request id already has an active stream"))?;
+        let streams = self.streams.clone();
+        let events = self.state.events(&request_id);
+        tokio::spawn(async move {
+            let mut terminal = false;
+            for event in events {
+                let event_type = TokenEventType::try_from(event.event_type)
+                    .unwrap_or(TokenEventType::Unspecified);
+                terminal = matches!(
+                    event_type,
+                    TokenEventType::Completed | TokenEventType::Failed | TokenEventType::Cancelled
+                );
+                let _ = streams.send(&request_id, Ok(event)).await;
+            }
+            if terminal {
+                streams.unregister(&request_id);
+            }
+        });
+
+        Ok(Response::new(
+            Box::pin(ReceiverStream::new(receiver)) as <Self as InferenceGateway>::SubmitStream
+        ))
+    }
+}
+
+#[allow(clippy::result_large_err)]
 fn normalize_max_tokens(value: u32, default: u32, limit: u32) -> Result<u32, Status> {
     let value = if value == 0 { default } else { value };
     if value > limit {
@@ -184,4 +246,26 @@ fn normalize_max_tokens(value: u32, default: u32, limit: u32) -> Result<u32, Sta
         )));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tonic::Code;
+
+    #[test]
+    fn max_tokens_uses_default_for_zero() {
+        assert_eq!(normalize_max_tokens(0, 64, 128).expect("valid"), 64);
+    }
+
+    #[test]
+    fn max_tokens_accepts_values_at_limit() {
+        assert_eq!(normalize_max_tokens(128, 64, 128).expect("valid"), 128);
+    }
+
+    #[test]
+    fn max_tokens_rejects_values_above_limit() {
+        let err = normalize_max_tokens(129, 64, 128).expect_err("invalid");
+        assert_eq!(err.code(), Code::InvalidArgument);
+    }
 }

@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rust-control-plane
+  namespace: {{ include "cria.namespace" . }}
+  labels:
+    app: rust-control-plane
+spec:
+  replicas: {{ .Values.controlPlane.replicas }}
+  selector:
+    matchLabels:
+      app: rust-control-plane
+  template:
+    metadata:
+      labels:
+        app: rust-control-plane
+    spec:
+      containers:
+        - name: control-plane
+          image: {{ .Values.controlPlane.image }}
+          imagePullPolicy: {{ .Values.controlPlane.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.controlPlane.grpcPort }}
+              name: grpc
+            - containerPort: {{ .Values.controlPlane.httpPort }}
+              name: http
+            - containerPort: {{ .Values.controlPlane.metricsPort }}
+              name: metrics
+          env:
+            - name: KAFKA_BROKERS
+              value: kafka:9092
+            - name: MODEL_ROUTES
+              value: {{ include "cria.modelRoutes" . | quote }}
+            - name: DEFAULT_MODEL_ID
+              value: {{ .Values.defaultModelId | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.controlPlane.logLevel | quote }}
+            {{- if .Values.mtls.enabled }}
+            - name: GRPC_TLS_CERT
+              value: /etc/cria/tls/server.crt
+            - name: GRPC_TLS_KEY
+              value: /etc/cria/tls/server.key
+            - name: GRPC_TLS_CLIENT_CA
+              value: /etc/cria/tls/ca.crt
+            - name: GRPC_TLS_REQUIRE_CLIENT_AUTH
+              value: "true"
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.controlPlane.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.mtls.enabled }}
+          volumeMounts:
+            - name: grpc-mtls
+              mountPath: /etc/cria/tls
+              readOnly: true
+          {{- end }}
+      {{- if .Values.mtls.enabled }}
+      volumes:
+        - name: grpc-mtls
+          secret:
+            secretName: {{ .Values.mtls.existingSecret }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rust-control-plane
+  namespace: {{ include "cria.namespace" . }}
+spec:
+  selector:
+    app: rust-control-plane
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: metrics

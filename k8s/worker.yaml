@@ -17,16 +17,22 @@ spec:
     spec:
       containers:
         - name: worker
-          image: distributed-llm/worker:latest
-          imagePullPolicy: IfNotPresent
+          image: cria/worker:dev
+          imagePullPolicy: Never
           ports:
             - containerPort: 9100
               name: metrics
           env:
             - name: KAFKA_BROKERS
               value: kafka:9092
+            - name: MODEL_ID
+              value: mock
+            - name: KAFKA_REQUEST_TOPIC
+              value: inference_requests.mock
             - name: BACKEND
               value: mock
+            - name: MODEL_NAME
+              value: TinyLlama/TinyLlama-1.1B-Chat-v1.0
             - name: METRICS_PORT
               value: "9100"
             - name: WORKER_ID

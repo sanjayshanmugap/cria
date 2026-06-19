@@ -17,16 +17,26 @@ spec:
     spec:
       containers:
         - name: control-plane
-          image: distributed-llm/control-plane:latest
-          imagePullPolicy: IfNotPresent
+          image: cria/control-plane:dev
+          imagePullPolicy: Never
           ports:
             - containerPort: 50051
               name: grpc
+            - containerPort: 8080
+              name: http
             - containerPort: 9090
               name: metrics
+          volumeMounts:
+            - name: grpc-mtls
+              mountPath: /etc/cria/tls
+              readOnly: true
           env:
             - name: KAFKA_BROKERS
               value: kafka:9092
+            - name: MODEL_ROUTES
+              value: mock=inference_requests.mock,tinyllama-1.1b-chat=inference_requests.tinyllama-1.1b-chat
+            - name: DEFAULT_MODEL_ID
+              value: mock
             - name: RUST_LOG
               value: info
           readinessProbe:
@@ -35,6 +45,11 @@ spec:
               port: metrics
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: grpc-mtls
+          secret:
+            secretName: cria-grpc-mtls
+            optional: true
 ---
 apiVersion: v1
 kind: Service
@@ -48,6 +63,9 @@ spec:
     - name: grpc
       port: 50051
       targetPort: grpc
+    - name: http
+      port: 8080
+      targetPort: http
     - name: metrics
       port: 9090
       targetPort: metrics

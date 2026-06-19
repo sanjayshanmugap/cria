@@ -45,6 +45,7 @@ message InferenceRequest {
   SamplingOptions sampling = 4;
   uint64 deadline_ms = 5;
   StreamOptions stream_options = 6;
+  string model_id = 7;
 }
 
 message TokenEvent {

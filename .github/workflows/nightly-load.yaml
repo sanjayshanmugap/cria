@@ -1,0 +1,28 @@
+name: Nightly Load
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  compose-load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install client dependencies
+        working-directory: workers/python
+        run: python -m pip install -r requirements.txt
+      - name: Start stack
+        run: docker compose up --build -d
+      - name: Smoke test
+        run: python scripts/smoke_test.py
+      - name: Load test
+        working-directory: workers/python
+        run: python load_test.py --parallel 4 --max-tokens 16
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

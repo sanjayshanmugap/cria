@@ -14,6 +14,6 @@ spec:
     - type: kafka
       metadata:
         bootstrapServers: kafka:9092
-        consumerGroup: llm-inference-workers
-        topic: inference_requests
+        consumerGroup: llm-inference-workers-mock
+        topic: inference_requests.mock
         lagThreshold: "5"

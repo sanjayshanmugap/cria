@@ -1,3 +1,4 @@
+use crate::pb::TokenEvent;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -54,6 +55,7 @@ pub enum RequestStatusInternal {
 #[derive(Clone, Default)]
 pub struct RequestState {
     inner: Arc<DashMap<String, RequestRecord>>,
+    events: Arc<DashMap<String, Vec<TokenEvent>>>,
 }
 
 impl RequestState {
@@ -126,6 +128,20 @@ impl RequestState {
         });
     }
 
+    pub fn record_event(&self, event: TokenEvent) {
+        self.events
+            .entry(event.request_id.clone())
+            .or_default()
+            .push(event);
+    }
+
+    pub fn events(&self, request_id: &str) -> Vec<TokenEvent> {
+        self.events
+            .get(request_id)
+            .map(|entry| entry.clone())
+            .unwrap_or_default()
+    }
+
     fn update(&self, request_id: &str, update: impl FnOnce(&mut RequestRecord)) {
         if let Some(mut entry) = self.inner.get_mut(request_id) {
             update(&mut entry);
@@ -139,4 +155,48 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .expect("system clock before unix epoch")
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracks_request_lifecycle() {
+        let state = RequestState::new();
+        state.insert(RequestRecord::queued("req-1".to_string()));
+
+        assert_eq!(state.active_count(), 1);
+        assert_eq!(
+            state.get("req-1").expect("record exists").status,
+            RequestStatusInternal::Queued
+        );
+
+        state.mark_running("req-1", "worker-a".to_string());
+        state.note_token("req-1", 2, "worker-a".to_string());
+        state.note_token("req-1", 1, "worker-a".to_string());
+        let running = state.get("req-1").expect("record exists");
+        assert_eq!(running.status, RequestStatusInternal::Running);
+        assert_eq!(running.emitted_tokens, 2);
+        assert_eq!(running.worker_id.as_deref(), Some("worker-a"));
+
+        state.finish_completed("req-1", 3, "worker-a".to_string());
+        let completed = state.get("req-1").expect("record exists");
+        assert_eq!(completed.status, RequestStatusInternal::Completed);
+        assert_eq!(completed.emitted_tokens, 3);
+        assert_eq!(state.active_count(), 0);
+    }
+
+    #[test]
+    fn cancel_only_non_terminal_requests() {
+        let state = RequestState::new();
+        state.insert(RequestRecord::queued("req-1".to_string()));
+
+        assert!(state.cancel("req-1", "user abort".to_string()));
+        let cancelled = state.get("req-1").expect("record exists");
+        assert_eq!(cancelled.status, RequestStatusInternal::Cancelled);
+        assert_eq!(cancelled.cancellation_reason.as_deref(), Some("user abort"));
+        assert!(!state.cancel("req-1", "again".to_string()));
+        assert!(!state.cancel("missing", "no-op".to_string()));
+    }
 }

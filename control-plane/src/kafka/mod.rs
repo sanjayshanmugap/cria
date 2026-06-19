@@ -8,19 +8,68 @@ use crate::{
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use rdkafka::{
-    consumer::{Consumer, StreamConsumer},
+    consumer::{BaseConsumer, Consumer, StreamConsumer},
     message::Message,
     producer::{FutureProducer, FutureRecord},
     ClientConfig,
 };
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
+use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+
+pub async fn wait_for_topics(config: &Config) -> Result<()> {
+    let mut topics = config
+        .model_routes
+        .values()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    topics.push(config.token_topic.as_str());
+    topics.push(config.control_topic.as_str());
+    topics.sort_unstable();
+    topics.dedup();
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", &config.kafka_brokers)
+        .set(
+            "group.id",
+            format!("{}-topic-wait", config.gateway_group_id),
+        )
+        .create()
+        .context("failed to create Kafka metadata consumer")?;
+    let started_at = Instant::now();
+
+    loop {
+        match consumer.fetch_metadata(None, Duration::from_secs(5)) {
+            Ok(metadata)
+                if topics
+                    .iter()
+                    .all(|topic| metadata.topics().iter().any(|found| found.name() == *topic)) =>
+            {
+                info!(topics = ?topics, "Kafka topics are available");
+                return Ok(());
+            }
+            Ok(_) => {
+                debug!(topics = ?topics, "waiting for Kafka topics");
+            }
+            Err(err) => {
+                debug!(error = %err, "waiting for Kafka broker metadata");
+            }
+        }
+
+        if started_at.elapsed() > Duration::from_secs(60) {
+            anyhow::bail!("timed out waiting for Kafka topics: {topics:?}");
+        }
+        sleep(Duration::from_secs(1)).await;
+    }
+}
 
 #[derive(Clone)]
 pub struct KafkaProducer {
     producer: FutureProducer,
-    request_topic: String,
+    request_topics: HashMap<String, String>,
     control_topic: String,
 }
 
@@ -34,16 +83,20 @@ impl KafkaProducer {
             .context("failed to create Kafka producer")?;
         Ok(Self {
             producer,
-            request_topic: config.request_topic.clone(),
+            request_topics: config.model_routes.clone(),
             control_topic: config.control_topic.clone(),
         })
     }
 
     pub async fn produce_request(&self, job: &InferenceJob) -> Result<()> {
+        let topic = self
+            .request_topics
+            .get(&job.model_id)
+            .with_context(|| format!("unknown model_id {}", job.model_id))?;
         let payload = serde_json::to_string(job)?;
         self.producer
             .send(
-                FutureRecord::to(&self.request_topic)
+                FutureRecord::to(topic)
                     .key(&job.request_id)
                     .payload(&payload),
                 Duration::from_secs(5),
@@ -123,10 +176,11 @@ async fn route_one(
     state: &RequestState,
     metrics: &Metrics,
 ) {
-    let proto = event.to_proto();
+    let proto = event.into_proto();
     let request_id = proto.request_id.clone();
     let event_type =
         TokenEventType::try_from(proto.event_type).unwrap_or(TokenEventType::Unspecified);
+    state.record_event(proto.clone());
 
     match event_type {
         TokenEventType::Started => state.mark_running(&request_id, proto.worker_id.clone()),
@@ -169,6 +223,7 @@ async fn route_one(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferenceJob {
     pub request_id: String,
+    pub model_id: String,
     pub prompt: String,
     pub max_tokens: u32,
     pub sampling: Option<SamplingJobOptions>,
@@ -241,7 +296,7 @@ pub struct TokenEventEnvelope {
 }
 
 impl TokenEventEnvelope {
-    pub fn to_proto(self) -> TokenEvent {
+    pub fn into_proto(self) -> TokenEvent {
         let event_type = match self.event_type {
             TokenEventKind::Started => TokenEventType::Started,
             TokenEventKind::Token => TokenEventType::Token,
@@ -271,5 +326,55 @@ impl From<RequestStatusInternal> for crate::pb::RequestStatus {
             RequestStatusInternal::Failed => crate::pb::RequestStatus::Failed,
             RequestStatusInternal::Cancelled => crate::pb::RequestStatus::Cancelled,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_python_token_event_payload() {
+        let payload = r#"{
+            "request_id": "req-1",
+            "sequence_number": 7,
+            "token": "hello ",
+            "probability": 1.0,
+            "event_type": "TOKEN",
+            "worker_id": "worker-a",
+            "error_message": null,
+            "timestamp_ms": 1234
+        }"#;
+
+        let envelope: TokenEventEnvelope =
+            serde_json::from_str(payload).expect("valid token event");
+        let proto = envelope.into_proto();
+
+        assert_eq!(proto.request_id, "req-1");
+        assert_eq!(proto.sequence_number, 7);
+        assert_eq!(proto.token, "hello ");
+        assert_eq!(proto.event_type, TokenEventType::Token as i32);
+        assert_eq!(proto.error_message, "");
+    }
+
+    #[test]
+    fn parses_terminal_failed_event_payload() {
+        let payload = r#"{
+            "request_id": "req-1",
+            "sequence_number": 0,
+            "token": "",
+            "probability": 0.0,
+            "event_type": "FAILED",
+            "worker_id": "worker-a",
+            "error_message": "boom",
+            "timestamp_ms": 1234
+        }"#;
+
+        let proto = serde_json::from_str::<TokenEventEnvelope>(payload)
+            .expect("valid token event")
+            .into_proto();
+
+        assert_eq!(proto.event_type, TokenEventType::Failed as i32);
+        assert_eq!(proto.error_message, "boom");
     }
 }

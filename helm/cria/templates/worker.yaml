@@ -1,0 +1,52 @@
+{{- range .Values.models }}
+{{- $modelName := include "cria.sanitizeModelId" .id }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-worker-{{ $modelName }}
+  namespace: {{ include "cria.namespace" $ }}
+  labels:
+    app: llm-worker
+    model: {{ .id | quote }}
+spec:
+  replicas: {{ .replicas }}
+  selector:
+    matchLabels:
+      app: llm-worker
+      model: {{ .id | quote }}
+  template:
+    metadata:
+      labels:
+        app: llm-worker
+        model: {{ .id | quote }}
+    spec:
+      containers:
+        - name: worker
+          image: {{ .image }}
+          imagePullPolicy: {{ .imagePullPolicy }}
+          ports:
+            - containerPort: 9100
+              name: metrics
+          env:
+            - name: KAFKA_BROKERS
+              value: kafka:9092
+            - name: MODEL_ID
+              value: {{ .id | quote }}
+            - name: KAFKA_REQUEST_TOPIC
+              value: {{ .topic | quote }}
+            - name: BACKEND
+              value: {{ .backend | quote }}
+            - name: MODEL_NAME
+              value: {{ .modelName | quote }}
+            - name: METRICS_PORT
+              value: "9100"
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          {{- with .resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+{{- end }}

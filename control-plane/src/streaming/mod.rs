@@ -50,3 +50,49 @@ impl StreamRegistry {
         self.inner.remove(request_id);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pb::TokenEvent;
+
+    #[tokio::test]
+    async fn registers_sends_and_unregisters_streams() {
+        let registry = StreamRegistry::new();
+        let mut receiver = registry
+            .register("req-1".to_string())
+            .expect("registers stream");
+
+        assert!(registry.register("req-1".to_string()).is_err());
+
+        registry
+            .send(
+                "req-1",
+                Ok(TokenEvent {
+                    request_id: "req-1".to_string(),
+                    sequence_number: 1,
+                    token: "hello".to_string(),
+                    probability: 1.0,
+                    event_type: 2,
+                    worker_id: "worker-a".to_string(),
+                    error_message: String::new(),
+                    timestamp_ms: 1,
+                }),
+            )
+            .await
+            .expect("sends event");
+
+        let event = receiver
+            .recv()
+            .await
+            .expect("event available")
+            .expect("event ok");
+        assert_eq!(event.token, "hello");
+
+        registry.unregister("req-1");
+        assert!(registry
+            .send("req-1", Ok(TokenEvent::default()))
+            .await
+            .is_err());
+    }
+}

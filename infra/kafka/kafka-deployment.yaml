@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: kafka
-          image: bitnami/kafka:3.7
+          image: bitnamilegacy/kafka:3.7
           ports:
             - containerPort: 9092
             - containerPort: 9093
@@ -53,3 +53,27 @@ spec:
     - name: broker
       port: 9092
       targetPort: 9092
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-topic-init
+  namespace: inference-system
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-topic-init
+          image: bitnamilegacy/kafka:3.7
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              for topic in inference_requests.mock inference_requests.tinyllama-1.1b-chat inference_token_events inference_control_events; do
+                kafka-topics.sh --bootstrap-server kafka:9092 \
+                  --create --if-not-exists \
+                  --topic "${topic}" \
+                  --partitions "3" \
+                  --replication-factor "1"
+              done
