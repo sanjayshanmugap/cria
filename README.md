@@ -88,6 +88,8 @@ sharing the browser demo through a free Cloudflare Quick Tunnel.
   [operations runbook](docs/runbooks/operations.md)
 - Role-specific, evidence-backed portfolio bullets:
   [docs/RESUME.md](docs/RESUME.md)
+- Release scope and verification evidence:
+  [CHANGELOG.md](CHANGELOG.md)
 
 The checked-in Apple M4 mock baseline completed 72/72 requests. At concurrency
 two, two workers delivered 53.57 tokens/s with 379.1 ms p95 TTFT—a 1.80x
