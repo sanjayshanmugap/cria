@@ -7,5 +7,8 @@ scrape_configs:
       - targets: ["control-plane:9090"]
 
   - job_name: workers
-    static_configs:
-      - targets: ["worker:9100"]
+    dns_sd_configs:
+      - names: ["worker"]
+        type: A
+        port: 9100
+        refresh_interval: 10s
