@@ -1,10 +1,35 @@
 # Cria Architecture
 
-Cria is a Kafka-native inference gateway. Clients connect to a Rust gRPC control plane, the control plane enqueues jobs into Kafka, and Python workers publish lifecycle and token events back to Kafka. The gateway consumes those durable token events and proxies them to the client stream.
+Cria is a Kafka-native inference gateway. gRPC and browser clients connect to a
+Rust control plane, the control plane enqueues jobs into model-specific Kafka
+topics, and Python workers publish lifecycle and token events back to Kafka.
+The gateway consumes durable events and streams them to gRPC or SSE clients.
 
-```text
-Client -> Rust gRPC Gateway -> Kafka inference_requests -> Python Workers
-Client <- Rust gRPC Gateway <- Kafka inference_token_events <- Python Workers
+```mermaid
+flowchart TB
+  subgraph Edge
+    Browser[React browser console] --> Web[nginx same-origin proxy]
+    Web -->|HTTP / SSE| BFF[Rust BFF]
+    CLI[gRPC CLI] --> Gateway[Rust gRPC gateway]
+    BFF --> Gateway
+  end
+
+  subgraph Durable data plane
+    Gateway -->|inference_requests.MODEL| Kafka[(Kafka KRaft)]
+    Kafka --> WorkerA[Python mock workers]
+    Kafka --> WorkerB[Python Transformers workers]
+    WorkerA -->|token + lifecycle events| Kafka
+    WorkerB -->|token + lifecycle events| Kafka
+    Kafka --> Gateway
+    Gateway -->|cancellation event| Kafka
+  end
+
+  subgraph Observability
+    Gateway --> Prometheus
+    WorkerA --> Prometheus
+    WorkerB --> Prometheus
+    Prometheus --> Grafana
+  end
 ```
 
 ## Components
@@ -15,16 +40,32 @@ Client <- Rust gRPC Gateway <- Kafka inference_token_events <- Python Workers
 | Kafka | Durable job, token-event, and cancellation topics |
 | Python workers | Consume jobs, run mock or Transformers inference, publish token events |
 | Python client | Exercises Submit, GetStatus, and Cancel gRPC methods |
+| React/nginx web | Provides the browser workflow and same-origin SSE proxy |
+| Prometheus/Grafana | Scrape gateway/worker metrics and provision dashboards |
 
 ## Topics
 
 | Topic | Producer | Consumer |
 | --- | --- | --- |
-| `inference_requests` | Control plane | Workers |
+| `inference_requests.<model_id>` | Control plane | That model's worker group |
 | `inference_token_events` | Workers | Control plane |
 | `inference_control_events` | Control plane | Worker cancellation watchers |
 
-Docker Compose creates these topics with the `kafka-init` service before the gateway starts. The gateway also waits for the topics during startup so Kubernetes and custom deployments do not depend only on Compose ordering.
+Docker Compose creates these topics with `kafka-init` before the gateway starts.
+Helm creates a revision-scoped topic Job, while gateway and worker init
+containers wait for the required topics. This ordering prevents successful pod
+startup against a partially initialized Kafka cluster.
+
+## Deployment Boundaries
+
+- Local Compose publishes developer-only ports for gRPC, Prometheus, and
+  Grafana.
+- The public Compose stack binds only Caddy on 80/443. Kafka, gRPC, worker
+  metrics, and Prometheus live on an internal Docker network.
+- The Helm chart is canonical for Kubernetes. Per-model Services expose worker
+  metrics only inside the cluster.
+- mTLS protects direct gRPC deployments. Browser traffic uses Caddy-managed
+  HTTPS and same-origin routing.
 
 ## Failure Handling
 

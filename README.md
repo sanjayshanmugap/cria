@@ -1,17 +1,37 @@
-# Distributed LLM Inference Engine
+# Cria — Distributed LLM Inference
+
+[![CI](https://github.com/sanjayshanmugap/cria/actions/workflows/ci.yaml/badge.svg)](https://github.com/sanjayshanmugap/cria/actions/workflows/ci.yaml)
+[![Nightly benchmarks](https://github.com/sanjayshanmugap/cria/actions/workflows/nightly-load.yaml/badge.svg)](https://github.com/sanjayshanmugap/cria/actions/workflows/nightly-load.yaml)
+[![Release images](https://github.com/sanjayshanmugap/cria/actions/workflows/publish-images.yaml/badge.svg)](https://github.com/sanjayshanmugap/cria/actions/workflows/publish-images.yaml)
+[![GitHub release](https://img.shields.io/github/v/release/sanjayshanmugap/cria)](https://github.com/sanjayshanmugap/cria/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2f766d.svg)](LICENSE)
 
 A Kafka-native distributed LLM inference engine with durable token streaming, cancellation, observability, and Kubernetes-native scaling.
 
 ## Architecture
 
-```text
-Client -> Rust gRPC Gateway -> Kafka inference_requests -> Python Workers
-Client <- Rust gRPC Gateway <- Kafka inference_token_events <- Python Workers
+```mermaid
+flowchart LR
+  Browser[React console] -->|HTTPS| Proxy[nginx / Caddy]
+  Proxy -->|HTTP + SSE| BFF[Rust BFF]
+  CLI[gRPC client] -->|Submit / Status / Cancel| Gateway[Rust gateway]
+  BFF --> Gateway
+  Gateway -->|per-model request topic| Kafka[(Kafka KRaft)]
+  Kafka --> Workers[Python model workers]
+  Workers -->|durable token events| Kafka
+  Kafka --> Gateway
+  Gateway --> Prometheus[Prometheus]
+  Workers --> Prometheus
+  Prometheus --> Grafana[Grafana]
 ```
 
-The gateway writes inference jobs to Kafka. Workers consume jobs, run a mock or Transformers-backed model, and publish every lifecycle event and generated token to a durable Kafka token-event topic. The gateway consumes token events and streams them back to the gRPC client.
+The gateway writes model-routed inference jobs to Kafka. Workers run a
+deterministic mock or Transformers model and publish every lifecycle event and
+generated token to a durable topic. The gateway consumes those events and
+streams them to gRPC or browser SSE clients.
 
-See [docs/architecture.md](docs/architecture.md) for topic ownership, failure behavior, and current non-goals.
+See [the architecture notes](docs/architecture.md) for ownership, failure
+behavior, and trade-offs.
 
 ## What Differentiates This
 
@@ -24,6 +44,8 @@ See [docs/architecture.md](docs/architecture.md) for topic ownership, failure be
 ## Quick Start
 
 ```bash
+git clone https://github.com/sanjayshanmugap/cria.git
+cd cria
 cp .env.example .env
 docker compose up --build -d
 python scripts/smoke_test.py
@@ -49,6 +71,45 @@ docker compose --profile llm up --build
 
 See [docs/demo.md](docs/demo.md) for worker scaling, logs, reset commands, and
 sharing the browser demo through a free Cloudflare Quick Tunnel.
+
+## Demo and Evidence
+
+[![Cria streaming inference demo](docs/assets/cria-demo.gif)](docs/assets/cria-console.png)
+
+- Reproducible benchmark methodology and raw workflow artifacts:
+  [docs/RESULTS.md](docs/RESULTS.md)
+- Provisioned observability evidence:
+  [Grafana dashboard screenshot](docs/assets/cria-grafana.png)
+- Local and temporary public demo:
+  [docs/demo.md](docs/demo.md)
+- Canonical Helm chart:
+  [helm/cria](helm/cria)
+- OCI HTTPS deployment, backup, rollback, and cost controls:
+  [operations runbook](docs/runbooks/operations.md)
+- Role-specific, evidence-backed portfolio bullets:
+  [docs/RESUME.md](docs/RESUME.md)
+
+The checked-in Apple M4 mock baseline completed 72/72 requests. At concurrency
+two, two workers delivered 53.57 tokens/s with 379.1 ms p95 TTFT—a 1.80x
+throughput increase over one worker at matched concurrency. These values
+measure the distributed transport path, not real-model inference.
+
+## Design Decisions
+
+- **Kafka token durability:** lifecycle and token events survive worker/gateway
+  disconnects and can be replayed within retention instead of existing only in
+  transient RPC callbacks.
+- **At-least-once processing:** Cria favors recoverability over expensive
+  exactly-once model execution. Clients de-duplicate by request ID and sequence
+  number; worker failure after partial output can cause duplicates.
+- **Topic per model:** each model has an independent request topic and consumer
+  group, isolating backlogs and making Kafka-lag autoscaling model-specific.
+- **Rust/Python split:** Rust owns admission control, gRPC/SSE streaming, state,
+  and concurrency; Python retains the mature ML runtime and model ecosystem.
+- **Mock public demo:** free CPU infrastructure cannot serve TinyLLaMA with
+  credible interactive latency. The public mock mode preserves Kafka routing,
+  cancellation, streaming, metrics, and failure semantics without pretending
+  to benchmark model compute.
 
 ## Kubernetes
 
