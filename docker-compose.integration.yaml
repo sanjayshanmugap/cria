@@ -24,7 +24,7 @@ services:
   worker-secondary:
     build:
       context: .
-      dockerfile: workers/python/Dockerfile
+      dockerfile: workers/python/Dockerfile.mock
     depends_on:
       kafka-init:
         condition: service_completed_successfully

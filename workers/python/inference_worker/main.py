@@ -8,7 +8,6 @@ from types import FrameType
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from inference_worker.backends.mock_backend import MockBackend
-from inference_worker.backends.transformers_backend import TransformersBackend
 from inference_worker.config import WorkerConfig, load_config
 from inference_worker.events import InferenceJob, SamplingOptions, token_event
 from inference_worker.kafka_io import CancellationWatcher, KafkaIO
@@ -156,6 +155,8 @@ def process_job(
 
 def build_backend(config: WorkerConfig) -> object:
     if config.backend == "transformers":
+        from inference_worker.backends.transformers_backend import TransformersBackend
+
         return TransformersBackend(
             model_name=config.model_name,
             device=config.device,
