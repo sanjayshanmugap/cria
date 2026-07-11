@@ -1,0 +1,43 @@
+services:
+  kafka-init:
+    command:
+      - /bin/bash
+      - -ec
+      - |
+        for topic in inference_requests.mock inference_requests.mock-secondary inference_token_events inference_control_events; do
+          kafka-topics.sh --bootstrap-server "$${KAFKA_BROKERS}" \
+            --create --if-not-exists \
+            --topic "$${topic}" \
+            --partitions "$${KAFKA_TOPIC_PARTITIONS:-3}" \
+            --replication-factor "$${KAFKA_TOPIC_REPLICATION_FACTOR:-1}"
+        done
+
+  control-plane:
+    environment:
+      MODEL_ROUTES: mock=inference_requests.mock,mock-secondary=inference_requests.mock-secondary
+      DEFAULT_MODEL_ID: mock
+
+  worker-secondary:
+    build:
+      context: .
+      dockerfile: workers/python/Dockerfile.mock
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      control-plane:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      MODEL_ID: mock-secondary
+      WORKER_ID: mock-secondary
+      KAFKA_REQUEST_TOPIC: inference_requests.mock-secondary
+      BACKEND: mock
+      METRICS_PORT: 9100
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/metrics', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s

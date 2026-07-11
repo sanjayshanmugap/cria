@@ -1,0 +1,8 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY workers/python/requirements-mock.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY workers/python/inference_worker ./inference_worker
+ENV PYTHONPATH=/app
+EXPOSE 9100
+CMD ["python", "-m", "inference_worker.main"]

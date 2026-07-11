@@ -1,0 +1,92 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cria-prometheus
+  namespace: {{ include "cria.namespace" . }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      - job_name: control-plane
+        static_configs:
+          - targets: ["rust-control-plane:{{ .Values.controlPlane.metricsPort }}"]
+      - job_name: workers
+        static_configs:
+          - targets:
+            {{- range .Values.models }}
+              - "llm-worker-{{ include "cria.sanitizeModelId" .id }}:9100"
+            {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cria-prometheus
+  namespace: {{ include "cria.namespace" . }}
+  labels:
+    app: cria-prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cria-prometheus
+  template:
+    metadata:
+      labels:
+        app: cria-prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: {{ .Values.prometheus.image }}
+          imagePullPolicy: {{ .Values.prometheus.imagePullPolicy }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+          ports:
+            - name: http
+              containerPort: {{ .Values.prometheus.port }}
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 6
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+          {{- with .Values.prometheus.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: cria-prometheus
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cria-prometheus
+  namespace: {{ include "cria.namespace" . }}
+spec:
+  selector:
+    app: cria-prometheus
+  ports:
+    - name: http
+      port: {{ .Values.prometheus.port }}
+      targetPort: http
+{{- end }}

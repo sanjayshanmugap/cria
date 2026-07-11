@@ -41,6 +41,37 @@ spec:
               value: "true"
             - name: ALLOW_PLAINTEXT_LISTENER
               value: "yes"
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - kafka-broker-api-versions.sh --bootstrap-server localhost:9092
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - kafka-broker-api-versions.sh --bootstrap-server localhost:9092
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: kafka-data
+              mountPath: /bitnami/kafka
+      volumes:
+        - name: kafka-data
+          {{- if .Values.kafka.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: kafka-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -48,10 +79,31 @@ metadata:
   name: kafka
   namespace: {{ include "cria.namespace" . }}
 spec:
+  publishNotReadyAddresses: true
   selector:
     app: kafka
   ports:
     - name: broker
       port: 9092
       targetPort: 9092
+    - name: controller
+      port: 9093
+      targetPort: 9093
+{{- if .Values.kafka.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data
+  namespace: {{ include "cria.namespace" . }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.kafka.persistence.storageClass }}
+  storageClassName: {{ .Values.kafka.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.kafka.persistence.size }}
+{{- end }}
 {{- end }}

@@ -20,6 +20,24 @@ spec:
         app: llm-worker
         model: {{ .id | quote }}
     spec:
+      {{- if $.Values.kafka.enabled }}
+      initContainers:
+        - name: wait-for-request-topic
+          image: {{ $.Values.kafka.image }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              deadline=$((SECONDS + {{ $.Values.kafka.topicReadyTimeoutSeconds }}))
+              until kafka-topics.sh --bootstrap-server kafka:9092 \
+                --describe --topic {{ .topic | quote }} >/dev/null 2>&1; do
+                if (( SECONDS >= deadline )); then
+                  echo "timed out waiting for request topic {{ .topic }}" >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+      {{- end }}
       containers:
         - name: worker
           image: {{ .image }}
@@ -44,9 +62,47 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+          startupProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: {{ ternary 60 12 (eq .backend "transformers") }}
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 6
           {{- with .resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-worker-{{ $modelName }}
+  namespace: {{ include "cria.namespace" $ }}
+  labels:
+    app: llm-worker
+    model: {{ .id | quote }}
+spec:
+  selector:
+    app: llm-worker
+    model: {{ .id | quote }}
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
 ---
 {{- end }}
