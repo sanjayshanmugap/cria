@@ -24,33 +24,31 @@ See [docs/architecture.md](docs/architecture.md) for topic ownership, failure be
 ## Quick Start
 
 ```bash
-docker compose up --build
+cp .env.example .env
+docker compose up --build -d
+python scripts/smoke_test.py
 ```
 
-In another terminal:
+Open the web console at <http://localhost:3000>. Prometheus is available at
+<http://localhost:9091> and the provisioned Grafana dashboard at
+<http://localhost:3001>.
+
+The default worker backend is `mock`, so local development does not require
+downloading TinyLLaMA. For CLI access:
 
 ```bash
 cd workers/python
 python client.py submit --prompt "Explain durable Kafka token streaming" --max-tokens 32
 ```
 
-The default worker backend is `mock`, so local development does not require downloading TinyLLaMA. To use TinyLLaMA, run workers with:
-
-```bash
-BACKEND=transformers MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0 python -m inference_worker.main
-```
-
-Or start the optional Compose profile:
+Start the optional TinyLLaMA profile:
 
 ```bash
 docker compose --profile llm up --build
 ```
 
-Run a smoke test against a running compose stack:
-
-```bash
-python scripts/smoke_test.py
-```
+See [docs/demo.md](docs/demo.md) for worker scaling, logs, reset commands, and
+sharing the browser demo through a free Cloudflare Quick Tunnel.
 
 ## Kubernetes
 
@@ -112,7 +110,9 @@ The checked-in K8s manifests use local development images (`cria/control-plane:d
 
 The Rust gateway exposes `/metrics` and `/healthz` on `METRICS_ADDR`. Workers expose Prometheus metrics on `METRICS_PORT`, including active jobs, processed jobs, failures, cancellations, token count, and job duration.
 
-Docker Compose also starts Prometheus on <http://localhost:9091> using `infra/observability/prometheus.yaml`.
+Docker Compose starts Prometheus on <http://localhost:9091> and Grafana on
+<http://localhost:3001>. The checked-in Cria dashboard and Prometheus datasource
+are provisioned automatically.
 
 ## Web Console
 
@@ -123,7 +123,8 @@ The Rust control plane exposes a lightweight BFF on `BFF_ADDR` (default `0.0.0.0
 - `GET /api/infer/:request_id/status`
 - `POST /api/infer/:request_id/cancel`
 
-Run the React console locally:
+The production React console is included in Compose at
+<http://localhost:3000>. For frontend development with Vite:
 
 ```bash
 cd web
