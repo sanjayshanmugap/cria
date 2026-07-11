@@ -14,5 +14,6 @@ web/dist/
 certs/
 .env
 .env.local
+.env.prod
 .DS_Store
 .cursor/
