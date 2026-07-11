@@ -135,9 +135,34 @@ services:
     depends_on:
       control-plane:
         condition: service_healthy
+    expose:
+      - "80"
+    networks: [backend, edge]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    logging: *default-logging
+
+  caddy:
+    image: caddy:2.9-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
     ports:
-      - "127.0.0.1:3000:80"
-    networks: [backend]
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      CRIA_HOST: ${CRIA_HOST:?Set CRIA_HOST}
+      CADDY_EMAIL: ${CADDY_EMAIL:?Set CADDY_EMAIL}
+    volumes:
+      - ./infra/edge/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [edge]
     deploy:
       resources:
         limits:
@@ -148,7 +173,10 @@ services:
 volumes:
   kafka-data:
   prometheus-data:
+  caddy-data:
+  caddy-config:
 
 networks:
   backend:
     internal: true
+  edge:
