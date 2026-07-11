@@ -17,10 +17,6 @@ services:
       MODEL_ROUTES: mock=inference_requests.mock,mock-secondary=inference_requests.mock-secondary
       DEFAULT_MODEL_ID: mock
 
-  worker:
-    environment:
-      WORKER_ID: mock-primary
-
   worker-secondary:
     build:
       context: .
