@@ -9,7 +9,10 @@ metadata:
 spec:
   scaleTargetRef:
     name: llm-worker-{{ $modelName }}
-  minReplicaCount: 1
+  minReplicaCount: {{ .replicas }}
+  {{- if eq (int .replicas) 0 }}
+  idleReplicaCount: 0
+  {{- end }}
   maxReplicaCount: {{ $.Values.autoscaling.keda.maxReplicas }}
   pollingInterval: 10
   cooldownPeriod: 60

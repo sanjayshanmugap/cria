@@ -1,9 +1,16 @@
+{{- if .Values.kafka.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: kafka-topic-init
   namespace: {{ include "cria.namespace" . }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: {{ .Values.kafka.topicReadyTimeoutSeconds }}
   template:
     spec:
       restartPolicy: OnFailure
@@ -14,6 +21,11 @@ spec:
             - /bin/bash
             - -ec
             - |
+              until kafka-broker-api-versions.sh --bootstrap-server kafka:9092 >/dev/null 2>&1; do
+                echo "waiting for Kafka"
+                sleep 2
+              done
+{{- end }}
               for topic in {{ include "cria.topics" . }}; do
                 kafka-topics.sh --bootstrap-server kafka:9092 \
                   --create --if-not-exists \

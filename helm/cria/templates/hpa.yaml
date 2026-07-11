@@ -1,5 +1,7 @@
 {{- if .Values.autoscaling.hpa.enabled }}
+{{- if not .Values.autoscaling.keda.enabled }}
 {{- range .Values.models }}
+{{- if gt (int .replicas) 0 }}
 {{- $modelName := include "cria.sanitizeModelId" .id }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -11,7 +13,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: llm-worker-{{ $modelName }}
-  minReplicas: 1
+  minReplicas: {{ .replicas }}
   maxReplicas: {{ $.Values.autoscaling.hpa.maxReplicas }}
   metrics:
     - type: Resource
@@ -21,5 +23,7 @@ spec:
           type: Utilization
           averageUtilization: {{ $.Values.autoscaling.hpa.cpuUtilization }}
 ---
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
