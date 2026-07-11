@@ -17,14 +17,15 @@ jobs:
         working-directory: workers/python
         run: python -m pip install -r requirements.txt
       - name: Start stack
-        run: docker compose up --build -d --wait
+        run: docker compose up --build -d --wait --scale worker=1
       - name: Smoke test
         run: python scripts/smoke_test.py
       - name: Run benchmark matrix
         run: |
           mkdir -p benchmark-results
           for workers in 1 2; do
-            docker compose up -d --scale worker="$workers" worker
+            docker compose up -d --wait --scale worker="$workers" worker
+            python scripts/smoke_test.py --max-tokens 4 --skip-cancel
             for parallel in 1 2 4 8; do
               (
                 cd workers/python
