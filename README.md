@@ -53,21 +53,16 @@ sharing the browser demo through a free Cloudflare Quick Tunnel.
 ## Kubernetes
 
 ```bash
-make build-images
-# For kind clusters:
-make kind-load
-
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f infra/kafka/kafka-deployment.yaml
-kubectl -n inference-system wait --for=condition=available deployment/kafka --timeout=120s
-kubectl apply -f k8s/control-plane.yaml
-kubectl apply -f k8s/worker.yaml
-kubectl apply -f k8s/hpa.yaml
-kubectl apply -f infra/keda/keda-scaledobject.yaml
-kubectl -n inference-system port-forward svc/rust-control-plane 50051:50051
+brew install kind kubectl helm
+make kind-up
+kubectl --context kind-cria -n inference-system \
+  port-forward service/rust-control-plane 50051:50051 8080:8080
+python scripts/smoke_test.py
 ```
 
-The checked-in K8s manifests use local development images (`cria/control-plane:dev` and `cria/worker:dev`) with `imagePullPolicy: Never`. For a remote cluster, push images to your registry and update the image fields before applying the manifests.
+See [k8s/README.md](k8s/README.md) for Prometheus access, persistence,
+TinyLLaMA, HPA/KEDA prerequisites, verification, and teardown. The Helm chart
+is canonical; the raw manifests are lightweight examples.
 
 ## Configuration
 
