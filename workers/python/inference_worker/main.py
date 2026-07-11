@@ -117,14 +117,26 @@ def process_job(
                         probability=generated.probability,
                     )
                 )
-            kafka.publish_token_event(
-                token_event(
-                    request_id=job.request_id,
-                    sequence_number=sequence,
-                    event_type="COMPLETED",
-                    worker_id=config.worker_id,
+            if cancellations.is_cancelled(job.request_id):
+                JOBS_CANCELLED.inc()
+                kafka.publish_token_event(
+                    token_event(
+                        request_id=job.request_id,
+                        sequence_number=sequence,
+                        event_type="CANCELLED",
+                        worker_id=config.worker_id,
+                        error_message="cancelled by client",
+                    )
                 )
-            )
+            else:
+                kafka.publish_token_event(
+                    token_event(
+                        request_id=job.request_id,
+                        sequence_number=sequence,
+                        event_type="COMPLETED",
+                        worker_id=config.worker_id,
+                    )
+                )
         except Exception as exc:
             JOBS_FAILED.inc()
             logger.exception("request_id=%s failed", job.request_id)
