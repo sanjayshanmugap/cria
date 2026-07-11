@@ -79,12 +79,16 @@ metadata:
   name: kafka
   namespace: {{ include "cria.namespace" . }}
 spec:
+  publishNotReadyAddresses: true
   selector:
     app: kafka
   ports:
     - name: broker
       port: 9092
       targetPort: 9092
+    - name: controller
+      port: 9093
+      targetPort: 9093
 {{- if .Values.kafka.persistence.enabled }}
 ---
 apiVersion: v1

@@ -2,15 +2,12 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: kafka-topic-init
+  name: kafka-topic-init-{{ .Release.Revision }}
   namespace: {{ include "cria.namespace" . }}
-  annotations:
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-weight": "0"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 6
   activeDeadlineSeconds: {{ .Values.kafka.topicReadyTimeoutSeconds }}
+  ttlSecondsAfterFinished: 300
   template:
     spec:
       restartPolicy: OnFailure
