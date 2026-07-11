@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER_NAME="${KIND_CLUSTER:-cria}"
 NAMESPACE="${CRIA_NAMESPACE:-inference-system}"
 RELEASE="${CRIA_RELEASE:-cria}"
+HPA_ENABLED="${CRIA_HPA_ENABLED:-false}"
 
 for command in docker kind kubectl helm make; do
   if ! command -v "${command}" >/dev/null 2>&1; then
@@ -43,6 +44,7 @@ make -C "${ROOT_DIR}" kind-load KIND_CLUSTER="${CLUSTER_NAME}"
 helm upgrade --install "${RELEASE}" "${ROOT_DIR}/helm/cria" \
   --namespace "${NAMESPACE}" \
   --create-namespace \
+  --set "autoscaling.hpa.enabled=${HPA_ENABLED}" \
   --wait \
   --timeout 5m
 
