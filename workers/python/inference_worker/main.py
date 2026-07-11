@@ -8,7 +8,6 @@ from types import FrameType
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from inference_worker.backends.mock_backend import MockBackend
-from inference_worker.backends.transformers_backend import TransformersBackend
 from inference_worker.config import WorkerConfig, load_config
 from inference_worker.events import InferenceJob, SamplingOptions, token_event
 from inference_worker.kafka_io import CancellationWatcher, KafkaIO
@@ -117,14 +116,26 @@ def process_job(
                         probability=generated.probability,
                     )
                 )
-            kafka.publish_token_event(
-                token_event(
-                    request_id=job.request_id,
-                    sequence_number=sequence,
-                    event_type="COMPLETED",
-                    worker_id=config.worker_id,
+            if cancellations.is_cancelled(job.request_id):
+                JOBS_CANCELLED.inc()
+                kafka.publish_token_event(
+                    token_event(
+                        request_id=job.request_id,
+                        sequence_number=sequence,
+                        event_type="CANCELLED",
+                        worker_id=config.worker_id,
+                        error_message="cancelled by client",
+                    )
                 )
-            )
+            else:
+                kafka.publish_token_event(
+                    token_event(
+                        request_id=job.request_id,
+                        sequence_number=sequence,
+                        event_type="COMPLETED",
+                        worker_id=config.worker_id,
+                    )
+                )
         except Exception as exc:
             JOBS_FAILED.inc()
             logger.exception("request_id=%s failed", job.request_id)
@@ -144,6 +155,8 @@ def process_job(
 
 def build_backend(config: WorkerConfig) -> object:
     if config.backend == "transformers":
+        from inference_worker.backends.transformers_backend import TransformersBackend
+
         return TransformersBackend(
             model_name=config.model_name,
             device=config.device,

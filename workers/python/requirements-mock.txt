@@ -1,0 +1,2 @@
+confluent-kafka>=2.3
+prometheus-client>=0.20
