@@ -1,0 +1,154 @@
+name: cria-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  kafka:
+    image: bitnamilegacy/kafka:3.7
+    restart: unless-stopped
+    environment:
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "false"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+    volumes:
+      - kafka-data:/bitnami/kafka
+    networks: [backend]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 3G
+    logging: *default-logging
+
+  kafka-init:
+    image: bitnamilegacy/kafka:3.7
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -ec
+      - |
+        for topic in inference_requests.mock inference_token_events inference_control_events; do
+          kafka-topics.sh --bootstrap-server kafka:9092 \
+            --create --if-not-exists \
+            --topic "$${topic}" \
+            --partitions 3 \
+            --replication-factor 1
+        done
+    networks: [backend]
+    logging: *default-logging
+
+  control-plane:
+    image: ghcr.io/${GHCR_OWNER:?Set GHCR_OWNER}/cria-control-plane:${CRIA_IMAGE_TAG:?Set CRIA_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    expose:
+      - "50051"
+      - "8080"
+      - "9090"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      MODEL_ROUTES: mock=inference_requests.mock
+      DEFAULT_MODEL_ID: mock
+      RUST_LOG: ${RUST_LOG:-info}
+    networks: [backend]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
+    logging: *default-logging
+
+  worker:
+    image: ghcr.io/${GHCR_OWNER:?Set GHCR_OWNER}/cria-worker-mock:${CRIA_IMAGE_TAG:?Set CRIA_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      control-plane:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      MODEL_ID: mock
+      KAFKA_REQUEST_TOPIC: inference_requests.mock
+      BACKEND: mock
+      METRICS_PORT: 9100
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/metrics', timeout=2)"
+      interval: 15s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    networks: [backend]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    logging: *default-logging
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    volumes:
+      - ./infra/observability/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [backend]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
+    logging: *default-logging
+
+  web:
+    image: ghcr.io/${GHCR_OWNER:?Set GHCR_OWNER}/cria-web:${CRIA_IMAGE_TAG:?Set CRIA_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:80"
+    networks: [backend]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    logging: *default-logging
+
+volumes:
+  kafka-data:
+  prometheus-data:
+
+networks:
+  backend:
+    internal: true
